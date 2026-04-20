@@ -1,24 +1,38 @@
 # ─────────────────────────────────────────────
 # Imagen base
 # ─────────────────────────────────────────────
+# FROM define la imagen base sobre la que se construye el contenedor.
+# Usamos python:3.12-slim, una imagen oficial de Python reducida (sin herramientas
+# innecesarias), lo que minimiza el tamaño final de la imagen.
 FROM python:3.12-slim
 
 # ─────────────────────────────────────────────
 # Metadatos
 # ─────────────────────────────────────────────
+# LABEL añade metadatos a la imagen en formato clave=valor.
+# Son informativos y no afectan al comportamiento del contenedor.
+# Se pueden consultar con: docker inspect <imagen>
 LABEL maintainer="ekonjmrivas-devops"
-LABEL description="FastAPI Hello World - Práctica Docker"
+LABEL description="FastAPI Hello World - Practica Docker"
 LABEL version="1.0"
 
 # ─────────────────────────────────────────────
 # ARG — parámetros de compilación (build-time)
 # ─────────────────────────────────────────────
+# ARG define variables disponibles SOLO durante la construcción de la imagen (docker build).
+# Se pueden sobreescribir en el comando build con: --build-arg APP_USER=otrouser
+# No están disponibles cuando el contenedor está en ejecución.
 ARG APP_USER=appuser
 ARG APP_DIR=/app
 
 # ─────────────────────────────────────────────
 # ENV — variables de entorno (runtime)
 # ─────────────────────────────────────────────
+# ENV define variables de entorno disponibles tanto en el build como en ejecución.
+# A diferencia de ARG, persisten cuando el contenedor está corriendo.
+# PYTHONDONTWRITEBYTECODE=1 : evita que Python genere archivos .pyc (bytecode compilado)
+# PYTHONUNBUFFERED=1        : fuerza que los logs salgan en tiempo real, sin buffer
+# APP_HOME                  : reutiliza el ARG anterior como variable de entorno
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_HOME=${APP_DIR}
@@ -26,31 +40,60 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ─────────────────────────────────────────────
 # Directorio de trabajo
 # ─────────────────────────────────────────────
+# WORKDIR establece el directorio de trabajo dentro del contenedor.
+# Todos los comandos posteriores (COPY, RUN, CMD) se ejecutan desde esta ruta.
+# Si el directorio no existe, Docker lo crea automáticamente.
 WORKDIR ${APP_DIR}
 
 # ─────────────────────────────────────────────
 # Copiar código fuente
 # ─────────────────────────────────────────────
+# COPY transfiere ficheros desde el sistema host al sistema de ficheros del contenedor.
+# El primer punto (.) es el origen: directorio actual del host (donde está el Dockerfile).
+# El segundo punto (.) es el destino: el WORKDIR definido arriba (/app).
+# Esto copia todo el código fuente de la aplicación dentro del contenedor.
 COPY . .
 
 # ─────────────────────────────────────────────
 # Instalación de dependencias
 # ─────────────────────────────────────────────
+# RUN ejecuta comandos durante la construcción de la imagen.
+# Se encadenan con && para minimizar el número de capas y reducir el tamaño final.
+# --upgrade pip        : actualiza pip a la última versión disponible
+# --no-cache-dir       : evita guardar caché de pip, reduciendo el tamaño de la imagen
+# -r requirements.txt  : instala todas las dependencias listadas en el fichero
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # ─────────────────────────────────────────────
 # Usuario no root (seguridad)
 # ─────────────────────────────────────────────
+# Por seguridad, nunca se debe ejecutar una aplicación como root dentro del contenedor.
+# useradd crea un usuario del sistema:
+#   --no-create-home : sin directorio home (no necesario para una app)
+#   --shell /bin/false : sin shell interactiva (no puede iniciar sesión)
 RUN useradd --no-create-home --shell /bin/false ${APP_USER}
+
+# USER indica a Docker qué usuario ejecutará los procesos a partir de este punto.
+# Afecta tanto a los RUN siguientes como al CMD final.
 USER ${APP_USER}
 
 # ─────────────────────────────────────────────
 # Puerto expuesto
 # ─────────────────────────────────────────────
+# EXPOSE documenta qué puerto escucha la aplicación dentro del contenedor.
+# Es meramente informativo: no publica el puerto automáticamente al exterior.
+# La publicación real se hace con -p en docker run (ejemplo: -p 8010:8000).
 EXPOSE 8000
 
 # ─────────────────────────────────────────────
 # Comando de arranque
 # ─────────────────────────────────────────────
+# CMD define el comando que se ejecuta al arrancar el contenedor.
+# Se usa formato JSON (exec form) para evitar que se ejecute dentro de un shell,
+# lo que permite que las señales del sistema (SIGTERM) lleguen directamente
+# al proceso y el contenedor pueda detenerse limpiamente.
+# uvicorn main:app  : arranca Uvicorn apuntando al objeto "app" del módulo "main.py"
+# --host 0.0.0.0   : escucha en todas las interfaces de red del contenedor
+# --port 8000      : puerto interno del contenedor
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
